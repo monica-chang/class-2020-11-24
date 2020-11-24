@@ -8,6 +8,7 @@ knitr::opts_chunk$set(echo = FALSE)
 library(PPBDS.data)
 library(rstanarm)
 library(tidyverse)
+library(rsample)
 
 # Same data clean up as last week.
 
@@ -17,12 +18,14 @@ week_11 <- shaming %>%
   mutate(treatment = fct_relevel(treatment, "Control")) %>% 
   mutate(solo = ifelse(hh_size == 1, TRUE, FALSE)) %>% 
   select(-general_04, -no_of_names, -birth_year, -hh_size) 
+
+week_11 <- week_11 %>% sample_n(1000)
 ```
 
 
 ## Scene 1
 
-**Prompt:** Create a fitted model object called `fit_1` using this formula or, if you want, a formula which you prefer. I recommend not making your model execessively complex.
+**Prompt:** Create a fitted model object called `fit_1` using this formula or, if you want, a formula which you prefer. I recommend not making your model excessively complex.
 
 primary_06 ~ solo + primary_04 + treatment + solo:treatment
 
@@ -30,9 +33,18 @@ primary_06 ~ solo + primary_04 + treatment + solo:treatment
 
 * Which data set should you use to fit the model? Explain why.
 
+The entire dataset because you have already chosen your model.
+
 * Interpret the fitted model. Should we keep all these variables? And the interaction term?
 
+```{r sc1}
+fit_1 <- stan_glm(formula = primary_06 ~ solo + primary_04 + treatment + solo:treatment,
+                  data = week_11,
+                  refresh = 0,
+                  seed = 9)
 
+print(fit_1, digits = 4, detail = FALSE)
+```
 
 ## Scene 2
 
@@ -41,6 +53,57 @@ primary_06 ~ solo + primary_04 + treatment + solo:treatment
 * One way to answer this question is to use `posterior_predict()`. Do that. Make it look nice! Write a sentence or two interpreting the answer.
 
 * A second approach uses `posterior_epred()`. Do that. Make it look nice! Write a sentence or two interpreting the answer.
+
+```{r sc2}
+
+# We have to specify a value for every predictor in the model.
+
+new_obs = tibble(treatment = c("Control", "Neighbors"), 
+                 solo = TRUE,
+                 primary_04 = "Yes")
+
+# This returns the posterior for individual predictions.
+
+pp <- posterior_predict(fit_1, newdata = new_obs)
+
+pp %>%
+  as_tibble() %>%
+  mutate_all(as.numeric) %>%
+  rename(control = `1`,
+         neighbors = `2`) %>%
+  mutate(diff = neighbors - control) %>%
+  ggplot(aes(x = diff)) +
+    geom_histogram(aes(y = after_stat(count/sum(count))),
+                   color = "white",
+                   bins = 100) +
+    theme_classic() +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(title = "Posterior distribution for causal effect of Neighbors treatment", 
+         subtitle = "Predictions for individuals",
+         x = "Change in voting likelihood",
+         y = "Probability")
+
+# This returns the posterior for ATE.
+
+pe <- posterior_epred(fit_1, newdata = new_obs)
+
+pe %>%
+  as_tibble() %>%
+  mutate_all(as.numeric) %>%
+  rename(control = `1`,
+         neighbors = `2`) %>%
+  mutate(diff = neighbors - control) %>%
+  ggplot(aes(x = diff)) +
+    geom_histogram(aes(y = after_stat(count/sum(count))),
+                   color = "white",
+                   bins = 100) +
+    theme_classic() +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(title = "Posterior distribution for causal effect of Neighbors treatment", 
+         subtitle = "Predictions for ATE, expected value is clearly positive",
+         x = "Change in voting likelihood",
+         y = "Probability")
+```
 
 
 ## Scene 3
